@@ -3,15 +3,9 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sync"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gitshubham45/urlShortner/shortner"
-)
-
-var (
-	urlMap = make(map[string]string)
-	mu     sync.Mutex
+	"github.com/gitshubham45/urlShortner/routes"
 )
 
 func main() {
@@ -29,40 +23,7 @@ func main() {
 		})
 	})
 
-	r.POST("/url", func(c *gin.Context) {
-		text := c.PostForm("text") // Get form data
-		if text == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Text parameter is missing"})
-			return
-		}
-
-		fmt.Println("Received:", text)
-		shortenedUrl := shortner.ShortenUrl(text) // Generate shortened URL
-
-		mu.Lock()
-		urlMap[shortenedUrl] = text
-		mu.Unlock()
-
-		// Render the HTML page with the shortened URL
-		c.HTML(http.StatusOK, "result.html", gin.H{
-			"shortened_url": "http://localhost:3000/url/" + shortenedUrl,
-		})
-	})
-
-	r.GET("/url/:shortUrl", func(c *gin.Context) {
-		shortUrl := c.Param("shortUrl")
-
-		mu.Lock()
-		originalUrl, exists := urlMap[shortUrl]
-		mu.Unlock()
-
-		if !exists {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Short URL not found"})
-			return
-		}
-
-		c.Redirect(http.StatusFound, originalUrl)
-	})
+	routes.UrlRoutes(r)
 
 	r.Run(":3000")
 }
