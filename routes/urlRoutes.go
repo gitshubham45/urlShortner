@@ -7,5 +7,5 @@ import (
 
 func UrlRoutes(incomingRoutes *gin.Engine) {
 	incomingRoutes.POST("/url",controllers.URLShortner())
-	incomingRoutes.GET("/url/:shortUrl", controllers.RedirectToOriginalURL())
+	incomingRoutes.GET("/:shortUrl", controllers.RedirectToOriginalURL())
 }

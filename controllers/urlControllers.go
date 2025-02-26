@@ -2,36 +2,48 @@ package controllers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
-	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gitshubham45/urlShortner/db"
 	"github.com/gitshubham45/urlShortner/hash"
-)
-
-var (
-	urlMap = make(map[string]string)
-	mu     sync.Mutex
+	"github.com/gitshubham45/urlShortner/models"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 func URLShortner() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		text := c.PostForm("text") // Get form data
-		if text == "" {
+		url := c.PostForm("text")
+		if url == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Text parameter is missing"})
 			return
 		}
 
-		fmt.Println("Received:", text)
-		shortenedUrl := hash.HashString(text) // Generate shortened URL
+		fmt.Println("Received:", url)
 
-		mu.Lock()
-		urlMap[shortenedUrl] = text
-		mu.Unlock()
+		collection := db.OpenCollection(db.Client, "urls")
 
-		// Render the HTML page with the shortened URL
+		var existingUrl models.Url
+		err := collection.FindOne(c, bson.M{"longUrl": url}).Decode(&existingUrl)
+		if err == nil { 
+			c.HTML(http.StatusOK, "result.html", gin.H{
+				"shortened_url": "http://localhost:3000/" + *existingUrl.ShortUrl,
+			})
+			return
+		}
+
+		shortenedUrl := hash.HashString(url)
+		newUrl := models.NewUrl(&url, &shortenedUrl)
+
+		_, err = collection.InsertOne(c, newUrl)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Something went wrong"})
+			return
+		}
+
 		c.HTML(http.StatusOK, "result.html", gin.H{
-			"shortened_url": "http://localhost:3000/url/" + shortenedUrl,
+			"shortened_url": "http://localhost:3000/" + shortenedUrl,
 		})
 	}
 }
@@ -40,15 +52,30 @@ func RedirectToOriginalURL() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		shortUrl := c.Param("shortUrl")
 
-		mu.Lock()
-		originalUrl, exists := urlMap[shortUrl]
-		mu.Unlock()
-
-		if !exists {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Short URL not found"})
+		var url models.Url
+		collection := db.OpenCollection(db.Client, "urls")
+		err := collection.FindOne(c, bson.M{"shortUrl": shortUrl}).Decode(&url)
+		if err != nil {
+			log.Println("Shortened URL not found")
+			c.JSON(http.StatusNotFound, gin.H{"error": "Shortened URL not found"})
 			return
 		}
 
-		c.Redirect(http.StatusFound, originalUrl)
+		_, err = collection.UpdateOne(
+			c,
+			bson.M{"shortUrl": shortUrl},
+			bson.M{"$inc": bson.M{"visitCount": 1}},
+		)
+
+		if err != nil {
+			log.Println("Failed to update visit count")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+			return
+		}
+
+		urlString := url.LongUrl
+		log.Println(urlString)
+
+		c.Redirect(http.StatusFound, *urlString)
 	}
 }
